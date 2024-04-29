@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Обновление системы
-apt update
-apt upgrade -y
+sudo apt update
+sudo apt upgrade -y
 
 # Добавляем модуль BBR
-sed -i '/.*tcp_bbr.*/d' /etc/modules-load.d/modules.conf
-echo "tcp_bbr" >> /etc/modules-load.d/modules.conf
+sudo sed -i '/.*tcp_bbr.*/d' /etc/modules-load.d/modules.conf
+sudo echo "tcp_bbr" >> /etc/modules-load.d/modules.conf
 
 # Функция удаления существующих записей
 remove_existing() {
@@ -79,7 +79,7 @@ sudo fallocate -l 2G /swapfile
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+sudo echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 swapon --show
 
 # Обратный отсчет и ребут
@@ -96,4 +96,4 @@ done
 
 # Удаление скрипта и перезагрузка
 rm -- "$0"
-reboot
+sudo reboot
