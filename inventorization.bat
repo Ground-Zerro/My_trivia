@@ -1,11 +1,19 @@
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 > nul
-set OUTPUT_FILE=%COMPUTERNAME%.txt
-del /q /f %OUTPUT_FILE%
 
-echo Выполненно от имени:> %OUTPUT_FILE%
-whoami>> %OUTPUT_FILE%
+REM Получение текущей даты и времени
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set "dt=%%I"
+set "YYYY=%dt:~0,4%"
+set "MM=%dt:~4,2%"
+set "DD=%dt:~6,2%"
+set "HH=%dt:~8,2%"
+set "Min=%dt:~10,2%"
+set "SS=%dt:~12,2%"
+
+set "OUTPUT_FILE=%COMPUTERNAME%_%YYYY%-%MM%-%DD%_%HH%-%Min%-%SS%.txt"
+
+echo Выполнено от имени: %USERNAME%> %OUTPUT_FILE%
 
 systeminfo | findstr /v /c:"OS Manufacturer" /c:"OS Configuration" /c:"OS Build Type" /c:"Registered Owner" /c:"Product ID" /c:"System Directory" /c:"Boot Device" /c:"System Locale" /c:"Input Locale" /c:"Available Physical Memory" /c:"Virtual Memory: Max Size" /c:"Virtual Memory: Available" /c:"Virtual Memory: In Use" /c:"Page File Location(s)" /c:"Hyper-V Requirements:" /c:"Virtualization Enabled In Firmware" /c:"Second Level Address Translation" /c:"Data Execution Prevention Available">> %OUTPUT_FILE%
 
@@ -42,10 +50,10 @@ for /d %%i in ("%user_path%*") do @(if exist "%%i\AppData" (echo %%~nxi>> %OUTPU
 
 echo.>> %OUTPUT_FILE%
 echo Принтеры:>> %OUTPUT_FILE%
-wmic printer get name, deviceID, PortName, Network, local>> %OUTPUT_FILE%
+wmic printer get name, deviceID, PortName, Network, local | findstr /v /r "^$">> %OUTPUT_FILE%
 if %ERRORLEVEL% neq 0 (echo не обнаружено)>> %OUTPUT_FILE%
 
 echo.>> %OUTPUT_FILE%
 echo Сканеры:>> %OUTPUT_FILE%
-wmic scanner get name, deviceid>> %OUTPUT_FILE%
+wmic scanner get name, deviceid | findstr /v /r "^$">> %OUTPUT_FILE%
 if %ERRORLEVEL% neq 0 (echo не обнаружено)>> %OUTPUT_FILE%
