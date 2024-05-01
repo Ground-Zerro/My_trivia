@@ -7,6 +7,22 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
 
+def preprocess_file(file_path):
+    # Чтение файла
+    with open(file_path, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+
+    # Удаление пустых строк и обрезка пробельных символов
+    lines = [line.strip() for line in lines if line.strip()]
+
+    # Замена множественных пробелов на один пробел
+    processed_lines = [' '.join(line.split()) for line in lines]
+
+    # Перезапись файла с обработанными строками
+    with open(file_path, 'w', encoding='utf-8') as file:
+        file.write('\n'.join(processed_lines))
+
+
 def extract_info(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         data = file.read().strip()  # Удаляем лишние символы в конце строки
@@ -51,11 +67,17 @@ def extract_info(file_path):
     free_ram_slots = free_ram_slots_match.group(1) if free_ram_slots_match else ''
 
     hdd_count = 0
+    hdd_pattern = r'Storage devices:(.*?)^$'
+    for match in re.finditer(hdd_pattern, data, re.DOTALL | re.MULTILINE):
+        hdd_data = match.group(1)
+        for line in hdd_data.split('\n'):
+            if 'IDE' in line or 'SCSI' in line:
+                hdd_count += 1
+
     hdd_size = 0
     hdd_pattern = r'InterfaceType\s+(\S+)\s+([^\n]+)\s+(\d+)'
     for match in re.finditer(hdd_pattern, data):
         if match.group(1) != 'USB':
-            hdd_count += 1
             hdd_size += int(match.group(3))
 
     hdd_size_gb = hdd_size / (1024 * 1024 * 1024)
@@ -79,21 +101,27 @@ def extract_info(file_path):
         'Свободно разъемов ОЗУ': free_ram_slots,
         'Установлено HDD': hdd_count,
         'Объем HDD': hdd_size_gb,
-        'CD\DVD': optical_drive,
+        'CD-DVD': optical_drive,
         'Ссылка': file_path
     }
 
 
 def main():
+    # Проход по файлам для предварительной обработки
     files = [f for f in os.listdir('.') if os.path.isfile(f) and f.endswith('.txt')]
+    for file in files:
+        preprocess_file(file)
 
+    # Извлечение данных из файлов
     data_list = []
     for file in files:
         data = extract_info(file)
         data_list.append(data)
 
+    # Создание DataFrame
     df = pd.DataFrame(data_list)
 
+    # Сохранение данных в Excel файл
     output_file = 'output.xlsx'
     if os.path.exists(output_file):
         current_time = datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
