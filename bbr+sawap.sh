@@ -74,14 +74,6 @@ EOF
 # Применяем настройки
 sysctl -p
 
-# Свап файл на 2 Ггб
-sudo fallocate -l 2G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-sudo echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-swapon --show
-
 # Обратный отсчет и ребут
 for ((i=10; i>=0; i--)); do
     if [ $i -eq 10 ]; then
