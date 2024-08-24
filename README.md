@@ -13,10 +13,3 @@ wget https://raw.githubusercontent.com/Ground-Zerro/My_trivia/main/bbr%2Bsawap.s
 ```
 curl -s https://raw.githubusercontent.com/YouROK/TorrServer/master/installTorrServerLinux.sh | sudo bash
 ```
-
-
-
-*Установить зависимости для inventorization.py:*
-```
-pip3 install -r requirements.txt
-```
