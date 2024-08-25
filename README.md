@@ -5,11 +5,18 @@
 **[Enable bbr + Swap 2Gb:](https://github.com/Ground-Zerro/My_trivia/blob/main/bbr%2Bsawap.sh)**
 
 ```
-wget https://raw.githubusercontent.com/Ground-Zerro/My_trivia/main/bbr%2Bsawap.sh -O bbr_sawap.sh && chmod +x bbr_sawap.sh && ./bbr_sawap.sh
+curl -s https://raw.githubusercontent.com/Ground-Zerro/My_trivia/main/bbr%2Bsawap.sh | sudo bash
 ```
 
 
 **[YouROK TorrServer](https://github.com/YouROK/TorrServer)**
 ```
 curl -s https://raw.githubusercontent.com/YouROK/TorrServer/master/installTorrServerLinux.sh | sudo bash
+```
+
+
+**[PyCharm trial reset](https://github.com/Ground-Zerro/My_trivia/blob/main/reset-trial-jetbrains-windows.bat)**
+- Командная строка Windows:
+```
+powershell -Command "irm https://raw.githubusercontent.com/Ground-Zerro/My_trivia/main/reset-trial-jetbrains-windows.bat -OutFile $env:TEMP\reset-trial-jetbrains-windows.bat" && cmd /c "%TEMP%\reset-trial-jetbrains-windows.bat"
 ```
