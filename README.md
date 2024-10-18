@@ -20,3 +20,11 @@ curl -s https://raw.githubusercontent.com/YouROK/TorrServer/master/installTorrSe
 ```
 powershell -Command "irm https://raw.githubusercontent.com/Ground-Zerro/My_trivia/main/reset-trial-jetbrains-windows.bat -OutFile $env:TEMP\reset-trial-jetbrains-windows.bat" && cmd /c "%TEMP%\reset-trial-jetbrains-windows.bat"
 ```
+
+
+**[VPS Bench](https://github.com/Ground-Zerro/My_trivia/blob/main/bench.sh)**
+```
+wget -qO- https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/main/bench.sh | bash
+```
+
+
