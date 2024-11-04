@@ -57,7 +57,7 @@ next() {
 
 speed_test() {
     local nodeName="$2"
-    if [ -z "$1" ];then
+    if [ -z "$1" ]; then
         ./speedtest-cli/speedtest --progress=no --accept-license --accept-gdpr >./speedtest-cli/speedtest.log 2>&1
     else
         ./speedtest-cli/speedtest --progress=no --server-id="$1" --accept-license --accept-gdpr >./speedtest-cli/speedtest.log 2>&1
@@ -69,7 +69,11 @@ speed_test() {
         latency=$(awk '/Latency/{print $3" "$4}' ./speedtest-cli/speedtest.log)
         if [[ -n "${dl_speed}" && -n "${up_speed}" && -n "${latency}" ]]; then
             printf "\033[0;33m%-18s\033[0;32m%-18s\033[0;31m%-20s\033[0;36m%-12s\033[0m\n" " ${nodeName}" "${up_speed}" "${dl_speed}" "${latency}"
+        else
+            _red "Ошибка: Не удалось получить данные для узла ${nodeName}\n"
         fi
+    else
+        _red "Ошибка: Сервер ${nodeName} недоступен или произошла ошибка.\n"
     fi
 }
 
