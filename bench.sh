@@ -57,7 +57,7 @@ next() {
 
 speed_test() {
     local nodeName="$2"
-    if [ -z "$1" ]; then
+    if [ -z "$1" ];then
         ./speedtest-cli/speedtest --progress=no --accept-license --accept-gdpr >./speedtest-cli/speedtest.log 2>&1
     else
         ./speedtest-cli/speedtest --progress=no --server-id="$1" --accept-license --accept-gdpr >./speedtest-cli/speedtest.log 2>&1
@@ -69,11 +69,7 @@ speed_test() {
         latency=$(awk '/Latency/{print $3" "$4}' ./speedtest-cli/speedtest.log)
         if [[ -n "${dl_speed}" && -n "${up_speed}" && -n "${latency}" ]]; then
             printf "\033[0;33m%-18s\033[0;32m%-18s\033[0;31m%-20s\033[0;36m%-12s\033[0m\n" " ${nodeName}" "${up_speed}" "${dl_speed}" "${latency}"
-        else
-            _red "Ошибка: Не удалось получить данные для узла ${nodeName}\n"
         fi
-    else
-        _red "Ошибка: Сервер ${nodeName} недоступен или произошла ошибка.\n"
     fi
 }
 
@@ -81,23 +77,16 @@ speed() {
     speed_test '' 'Speedtest.net'
     speed_test '21541' 'Los Angeles, US'
     speed_test '43860' 'Dallas, US'
+    speed_test '40879' 'Montreal, CA'
     speed_test '24215' 'Paris, FR'
     speed_test '28922' 'Amsterdam, NL'
     speed_test '24447' 'Shanghai, CN'
     speed_test '5530' 'Chongqing, CN'
     speed_test '60572' 'Guangzhou, CN'
     speed_test '32155' 'Hongkong, CN'
+    speed_test '23647' 'Mumbai, IN'
     speed_test '13623' 'Singapore, SG'
     speed_test '21569' 'Tokyo, JP'
-    speed_test '4503' 'Moscow, RU'
-    speed_test '4534' 'Moscow, RU'
-    speed_test '29985' 'Moscow, RU'
-    speed_test '10949' 'Saint Petersburg, RU'
-    speed_test '13042' 'Saint Petersburg, RU'
-    speed_test '5400' 'Novosibirsk, RU'
-    speed_test '5428' 'Novosibirsk, RU'
-    speed_test '10356' 'Khabarovsk, RU'
-    speed_test '8991' 'Vladivostok, RU'
 }
 
 io_test() {
