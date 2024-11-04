@@ -229,18 +229,16 @@ install_speedtest() {
         fi
         if [ "${sysarch}" = "x86_64" ]; then
             sys_bit="x86_64"
-        fi
-        if [ "${sysarch}" = "i386" ] || [ "${sysarch}" = "i686" ]; then
+        elif [ "${sysarch}" = "i386" ] || [ "${sysarch}" = "i686" ]; then
             sys_bit="i386"
-        fi
-        if [ "${sysarch}" = "armv8" ] || [ "${sysarch}" = "armv8l" ] || [ "${sysarch}" = "aarch64" ] || [ "${sysarch}" = "arm64" ]; then
+        elif [ "${sysarch}" = "armv8" ] || [ "${sysarch}" = "armv8l" ] || [ "${sysarch}" = "aarch64" ] || [ "${sysarch}" = "arm64" ]; then
             sys_bit="aarch64"
-        fi
-        if [ "${sysarch}" = "armv7" ] || [ "${sysarch}" = "armv7l" ]; then
+        elif [ "${sysarch}" = "armv7" ] || [ "${sysarch}" = "armv7l" ]; then
             sys_bit="armhf"
-        fi
-        if [ "${sysarch}" = "armv6" ]; then
+        elif [ "${sysarch}" = "armv6" ]; then
             sys_bit="armel"
+        elif [[ "${sysarch}" == "mips"* ]]; then
+            sys_bit="mips"
         fi
         [ -z "${sys_bit}" ] && _red "Error: Unsupported system architecture (${sysarch}).\n" && exit 1
         url1="https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-${sys_bit}.tgz"
