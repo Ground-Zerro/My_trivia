@@ -1,6 +1,8 @@
-opkg update && opkg install curl && curl -L -s "https://github.com/Ground-Zerro/Wireguard-DPI-blocking-bypass/raw/refs/heads/main/install.sh" > /tmp/install.sh && chmod +x /tmp/install.sh && sh /tmp/install.sh
+opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/main/install.sh" > /tmp/install.sh && chmod +x /tmp/install.sh && sh /tmp/install.sh
+
+curl -sL "https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/main/install.sh" | bash
 
 
-
-curl -sL "https://github.com/Ground-Zerro/Wireguard-DPI-blocking-bypass/raw/refs/heads/main/install.sh" | bash
+Для тестов:
+curl -sL "https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/main/work.sh" | bash
 
