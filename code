@@ -7,4 +7,4 @@ curl -sL "https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/ma
 curl -sL "https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/main/work.sh" | bash
 
 
-curl -L -s "https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/main/work.sh" > /tmp/work.sh && chmod +x /tmp/work.sh && sh /tmp/work.sh
+curl -L -s "https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/main/adgh.sh" > /tmp/adgh.sh && chmod +x /tmp/adgh.sh && sh /tmp/adgh.sh

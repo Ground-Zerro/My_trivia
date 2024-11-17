@@ -136,13 +136,14 @@ if [ -z "\$(ip6tables-save | grep bypass6)" ]; then
 fi
 EOF
 
-#Создание базового ipset
+# Создание базового списка доменов для перенаправления
+echo "Создание базового списка доменов для перенаправления..."
 cat << EOF > /opt/etc/AdGuardHome/ipset.conf
 2ip.ru/bypass,bypass6
 googlevideo.com,ggpht.com,ytimg.com,youtube.com,youtubei.googleapis.com,youtu.be,nhacmp3youtube.com,googleusercontent.com,gstatic.com/bypass,bypass6
 openai.com,chatgpt.com/bypass,bypass6
 bookstagram.com,carstagram.com,cdninstagram.com,chickstagram.com,ig.me,igcdn.com,igsonar.com,igtv.com,imstagram.com,imtagram.com,instaadder.com,instachecker.com,instafallow.com,instafollower.com,instagainer.com,instagda.com,instagify.com,instagmania.com,instagor.com,instagram-brand.com,instagram-engineering.com,instagram-help.com,instagram-press.com,instagram-press.net,instagram.com,instagramhashtags.net,instagramhilecim.com,instagramhilesi.org,instagramium.com,instagramizlenme.com,instagramkusu.com,instagramlogin.com,instagrampartners.com,instagramphoto.com,instagramq.com,instagramsepeti.com,instagramtips.com,instagramtr.com,instagy.com,instamgram.com,instanttelegram.com,instaplayer.net,instastyle.tv,instgram.com,oninstagram.com,online-instagram.com,onlineinstagram.com,web-instagram.net,wwwinstagram.com/bypass,bypass6
-1337x.to,262203.game4you.top,eztv.re,fitgirl-repacks.site,new.megashara.net,nnmclub.to,nnm-club.to,nnm-club.me,rarbg.to,rustorka.com,rutor.info,rutor.org,rutracker.cc,rutracker.org,static.rutracker.cc,tapochek.net,thelastgame.ru,thepiratebay.org,thepirate-bay.org,torrentgalaxy.to,torrent-games.best,torrentz2eu.org,www.limetorrents.info,www.pirateproxy-bay.com,www.torlock.com,www.torrentdownloads.me/bypass,bypass6
+1337x.to,game4you.top,eztv.re,fitgirl-repacks.site,megashara.net,nnmclub.to,nnm-club.to,nnm-club.me,rarbg.to,rustorka.com,rutor.info,rutor.org,rutracker.cc,rutracker.org,rutracker.cc,tapochek.net,thelastgame.ru,thepiratebay.org,thepirate-bay.org,torrentgalaxy.to,torrent-games.best,torrentz2eu.org,limetorrents.info,pirateproxy-bay.com,torlock.com,torrentdownloads.me/bypass,bypass6
 github.com/bypass,bypass6
 EOF
 
