@@ -22,19 +22,18 @@ select_wireguard_interface() {
         echo "$((i + 1)). ${interface_array[$i]}"
     done
 
-    # Цикл до корректного ввода
-    while true; do
-        # Считывание выбора пользователя
-        read -p "Ваш выбор (номер): " choice
+    # Считывание выбора пользователя
+    read -p "Ваш выбор (номер): " choice
 
-        # Проверка, что выбор корректен
-        if [ "$choice" -ge 1 ] && [ "$choice" -le "${#interface_array[@]}" ]; then
-            echo "${interface_array[$((choice - 1))]}"
-            break
-        else
-            echo "Неверный выбор. Попробуйте снова."
-        fi
-    done
+    # Проверка, что выбор корректен
+    if [ "$choice" -ge 1 ] && [ "$choice" -le "${#interface_array[@]}" ]; then
+        # Возвращаем выбранный интерфейс
+        echo "${interface_array[$((choice - 1))]}"
+    else
+        # Ошибка при неверном вводе
+        echo "Неверный выбор."
+        exit 1
+    fi
 }
 
 # Основной блок
@@ -46,4 +45,3 @@ if [ -z "$WG_INTERFACE" ]; then
 fi
 
 echo "Выбран интерфейс WireGuard: $WG_INTERFACE"
-
