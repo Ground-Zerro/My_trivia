@@ -14,7 +14,7 @@ echo "Выберите интерфейс:"
 i=1
 for iface in $interfaces; do
     # Получаем IP-адрес интерфейса, используя ip a show
-    ip_address=$(ip a show $iface | grep -oP 'inet \K[\d.]+')
+    ip_address=$(ip a show "$iface" | grep -oP 'inet \K[\d.]+')
 
     # Если IP-адрес найден, выводим интерфейс и его IP
     if [ -n "$ip_address" ]; then
@@ -26,7 +26,7 @@ done
 # Запрашиваем выбор пользователя
 read -p "Введите номер интерфейса: " choice
 
-# Присваиваем выбранный интерфейс переменной
+# Присваиваем выбранный интерфейс переменной, извлекая только имя интерфейса без лишних символов
 net_interface=$(echo "$interfaces" | sed -n "${choice}p")
 
 # Выводим выбранный интерфейс
