@@ -52,7 +52,7 @@ opkg install adguardhome-go ipset iptables ip-full
 
 # Добавляем ipset в AdGuard Home
 echo "Настройка AdGuard Home..."
-sed -i 's|ipset_file: ""|ipset_file: /opt/etc/AdGuardHome/ipset.conf|' /opt/etc/AdGuardHome/AdGuardHome.yaml
+sed -i 's|ipset_file: .*|ipset_file: /opt/etc/AdGuardHome/ipset.conf|' /opt/etc/AdGuardHome/AdGuardHome.yaml
 
 # Инициализация WGET
 WGET='/opt/bin/wget -q --no-check-certificate'
