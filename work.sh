@@ -1,7 +1,7 @@
 #!/bin/sh
 
 get_wireguard_interfaces() {
-    # Извлечение WireGuard интерфейсов
+    # Извлечение интерфейсов WireGuard
     interfaces=$(ip a | grep -oP '^(\d+):\s+\K(nwg[^\s:]+)')
     if [ -z "$interfaces" ]; then
         echo "Не найдено активных WireGuard интерфейсов."
