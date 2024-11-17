@@ -20,3 +20,6 @@ net_interface=$(echo "$interfaces" | sed -n "${choice}p")
 
 # Выводим выбранный интерфейс
 echo "Выбран интерфейс: $net_interface"
+
+# Удаляем скрипт после выполнения
+rm -- "$0"
