@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Получаем список интерфейсов с ip a, фильтруем только интерфейсы, начинающиеся с 'nwg'
-interfaces=$(ip a | grep -oP '^\d+: (\S+):' | grep 'nwg')
+interfaces=$(ip a | grep -oP '^\d+: (\S+):' | grep 'nwg' | sed 's/://')
 
 # Проверяем, есть ли такие интерфейсы
 if [ -z "$interfaces" ]; then
