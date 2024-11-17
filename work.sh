@@ -27,6 +27,7 @@ select_wireguard_interface() {
         read -p "Ваш выбор (номер): " choice
         # Проверка, что выбор является числом и в пределах диапазона
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#interface_array[@]}" ]; then
+            # Возвращаем выбранный интерфейс
             echo "${interface_array[$((choice - 1))]}"
             break
         else
