@@ -35,21 +35,25 @@ select_wireguard_interface() {
 
     echo "Формируем список для выбора:" >&2
 
-    # Нумерация строк с помощью awk
-    echo "$interfaces" | awk '{print NR ". " $0}'
+    # Преобразование интерфейсов в нумерованный список
+    IFS=$'\n' read -r -d '' -a interface_array <<< "$(echo "$interfaces")"
+
+    for i in "${!interface_array[@]}"; do
+        echo "$((i + 1)). ${interface_array[$i]}"
+    done
 
     # Считывание выбора пользователя
     read -p "Ваш выбор (номер): " choice
 
-    # Выбор интерфейса
-    selected=$(echo "$interfaces" | awk -v num="$choice" 'NR==num')
-    echo "Выбранный интерфейс: $selected" >&2
-
-    # Проверка на пустой выбор
-    if [ -z "$selected" ]; then
+    # Проверка, что выбор корректен
+    if ! [ "$choice" -ge 1 ] 2>/dev/null || [ "$choice" -gt "${#interface_array[@]}" ]; then
         echo "Неверный выбор. Завершаем выполнение скрипта." >&2
         exit 1
     fi
+
+    # Определение выбранного интерфейса
+    selected="${interface_array[$((choice - 1))]}"
+    echo "Выбранный интерфейс: $selected" >&2
 
     echo "$selected"
 }
