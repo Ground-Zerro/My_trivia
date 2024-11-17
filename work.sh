@@ -3,17 +3,15 @@
 # Функция для получения списка интерфейсов WireGuard
 get_wireguard_interfaces() {
     # Получаем список интерфейсов WireGuard
-    interfaces=$(ip a | sed -n 's/.*nwg\(.*\): <.*UP.*/nwg\1/p')
+    interfaces=$(ip a | grep -oP '^(\d+):\s+\K(nwg[^\s:]+)')
 
     if [ -z "$interfaces" ]; then
         echo "Не найдено активных WireGuard интерфейсов."
         exit 1  # Завершаем выполнение всего скрипта при ошибке
     fi
 
-    echo "Найдено $(echo "$interfaces" | wc -w) интерфейсов WireGuard."
-    for iface in $interfaces; do
-        echo "$iface"
-    done
+    echo "Найдено $(echo "$interfaces" | wc -l) интерфейсов WireGuard."
+    echo "$interfaces"
 }
 
 # Функция выбора интерфейса WireGuard
@@ -26,14 +24,11 @@ select_wireguard_interface() {
         exit 1  # Завершаем выполнение всего скрипта при ошибке
     fi
 
-    echo "Найдено $(echo "$interfaces" | wc -l) интерфейсов WireGuard."
-    echo "Введите номер интерфейса для использования:"
-
-    # Формируем список для выбора
-    echo "$interfaces" | awk '{printf "%d. %s\n", NR, $1}'
+    echo "Выберите интерфейс для использования:"
+    echo "$interfaces" | nl -w1 -s'. '
 
     read -p "Ваш выбор: " choice
-    selected=$(echo "$interfaces" | awk -v num="$choice" 'NR == num {print $1}')
+    selected=$(echo "$interfaces" | sed -n "${choice}p")
 
     if [ -z "$selected" ]; then
         echo "Неверный выбор. Завершаем выполнение скрипта."
