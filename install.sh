@@ -13,4 +13,4 @@ curl -sL "https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/ma
 chmod +x "$TMP_DIR/$SCRIPT"
 
 # Выполняем скрипт в интерактивном режиме
-bash -i "$TMP_DIR/$SCRIPT"
+"$TMP_DIR/$SCRIPT"
