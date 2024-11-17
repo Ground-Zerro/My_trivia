@@ -1,47 +1,22 @@
 #!/bin/sh
 
-get_wireguard_interfaces() {
-    # Извлечение интерфейсов WireGuard
-    interfaces=$(ip a | grep -oP '^(\d+):\s+\K(nwg[^\s:]+)')
-    if [ -z "$interfaces" ]; then
-        echo "Не найдено активных WireGuard интерфейсов."
-        exit 1
-    fi
-    echo "$interfaces"
-}
+# Получаем список интерфейсов с ip a, фильтруем по типам интерфейсов для VPN
+interfaces=$(ip a | grep -E "tun|pptp|l2tp|ipsec|openvpn|sstp|ikev1|ikev2|openconnect|ipip|gre|eoin|ezcfg" | awk -F: '{print $2}' | sed 's/^[ \t]*//')
 
-select_wireguard_interface() {
-    interfaces=$(get_wireguard_interfaces)
+# Выводим список интерфейсов для выбора
+echo "Выберите интерфейс:"
+i=1
+for iface in $interfaces; do
+    ip_address=$(ip a show $iface | grep -oP 'inet \K[\d.]+')
+    echo "$i. $iface: $ip_address"
+    i=$((i+1))
+done
 
-    # Преобразование интерфейсов в массив
-    IFS=$'\n' read -r -d '' -a interface_array <<< "$(echo "$interfaces")"
+# Запрашиваем выбор пользователя
+read -p "Введите номер интерфейса: " choice
 
-    # Отображение списка интерфейсов
-    echo "Выберите интерфейс WireGuard:"
-    for i in "${!interface_array[@]}"; do
-        echo "$((i + 1)). ${interface_array[$i]}"
-    done
+# Присваиваем выбранный интерфейс переменной
+net_interface=$(echo "$interfaces" | sed -n "${choice}p")
 
-    # Считывание выбора пользователя
-    while true; do
-        read -p "Ваш выбор (номер): " choice
-        # Проверка, что выбор является числом и в пределах диапазона
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#interface_array[@]}" ]; then
-            # Возвращаем выбранный интерфейс
-            echo "${interface_array[$((choice - 1))]}"
-            break
-        else
-            echo "Неверный выбор. Пожалуйста, выберите номер из списка."
-        fi
-    done
-}
-
-# Основной блок
-WG_INTERFACE=$(select_wireguard_interface)
-
-if [ -z "$WG_INTERFACE" ]; then
-    echo "Ошибка: не удалось определить интерфейс WireGuard."
-    exit 1
-fi
-
-echo "Выбран интерфейс WireGuard: $WG_INTERFACE"
+# Выводим выбранный интерфейс
+echo "Выбран интерфейс: $net_interface"
