@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Получаем список интерфейсов с ip a, фильтруем по типам интерфейсов для VPN
-interfaces=$(ip a | grep -E "tun|pptp|l2tp|ipsec|openvpn|sstp|ikev1|ikev2|openconnect|ipip|gre|eoin|ezcfg" | awk -F: '{print $2}' | sed 's/^[ \t]*//')
+interfaces=$(ip a | grep -E "nwg" | awk -F: '{print $2}' | sed 's/^[ \t]*//')
 
 # Выводим список интерфейсов для выбора
 echo "Выберите интерфейс:"
