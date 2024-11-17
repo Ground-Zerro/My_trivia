@@ -7,10 +7,12 @@ get_wireguard_interfaces() {
     echo "Вывод команды 'ip a':" >&2
     ip a >&2
 
+    # Извлечение WireGuard интерфейсов
     interfaces=$(ip a | grep -oP '^(\d+):\s+\K(nwg[^\s:]+)')
     echo "Найденные интерфейсы WireGuard:" >&2
     echo "$interfaces" >&2
 
+    # Проверка наличия интерфейсов
     if [ -z "$interfaces" ]; then
         echo "Не найдено активных WireGuard интерфейсов." >&2
         exit 1
@@ -33,21 +35,17 @@ select_wireguard_interface() {
 
     echo "Формируем список для выбора:" >&2
 
-    # Нумерация строк вручную
-    count=1
-    menu=""
-    echo "$interfaces" | while read -r interface; do
-        echo "$count. $interface"
-        menu="${menu}${count}:${interface}\n"
-        count=$((count + 1))
-    done
+    # Нумерация строк с помощью awk
+    echo "$interfaces" | awk '{print NR ". " $0}'
 
+    # Считывание выбора пользователя
     read -p "Ваш выбор (номер): " choice
 
-    # Проверка корректности выбора
-    selected=$(echo "$interfaces" | sed -n "${choice}p")
+    # Выбор интерфейса
+    selected=$(echo "$interfaces" | awk "NR==$choice")
     echo "Выбранный интерфейс: $selected" >&2
 
+    # Проверка на пустой выбор
     if [ -z "$selected" ]; then
         echo "Неверный выбор. Завершаем выполнение скрипта." >&2
         exit 1
@@ -58,6 +56,7 @@ select_wireguard_interface() {
 
 echo "Запускаем основную часть скрипта" >&2
 
+# Получение и проверка выбранного интерфейса
 WG_INTERFACE=$(select_wireguard_interface)
 echo "Результат выбора интерфейса: $WG_INTERFACE" >&2
 
