@@ -33,16 +33,18 @@ select_wireguard_interface() {
 
     echo "Формируем список для выбора:" >&2
 
-    # Нумерация строк без команды nl
+    # Нумерация строк вручную
     count=1
+    menu=""
     echo "$interfaces" | while read -r interface; do
         echo "$count. $interface"
+        menu="${menu}${count}:${interface}\n"
         count=$((count + 1))
     done
 
-    read -p "Ваш выбор: " choice
-    echo "Пользователь выбрал: $choice" >&2
+    read -p "Ваш выбор (номер): " choice
 
+    # Проверка корректности выбора
     selected=$(echo "$interfaces" | sed -n "${choice}p")
     echo "Выбранный интерфейс: $selected" >&2
 
