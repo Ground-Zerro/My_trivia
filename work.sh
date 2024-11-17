@@ -1,8 +1,7 @@
 #!/bin/sh
 
 # Получаем список интерфейсов с ip a, фильтруем только интерфейсы, начинающиеся с 'nwg'
-# Фильтруем только те интерфейсы, которые имеют IP-адрес.
-interfaces=$(ip a | grep -oP '^\d+: (\S+):.*inet\s+\K[\d.]+.*nwg[0-9]+' | awk '{print $2}' | sort -u)
+interfaces=$(ip a | grep -oP '^\d+: (\S+):' | grep 'nwg')
 
 # Проверяем, есть ли такие интерфейсы
 if [ -z "$interfaces" ]; then
@@ -14,10 +13,10 @@ fi
 echo "Выберите интерфейс:"
 i=1
 for iface in $interfaces; do
-    # Получаем IP-адрес интерфейса
+    # Получаем IP-адрес интерфейса, используя ip a show
     ip_address=$(ip a show $iface | grep -oP 'inet \K[\d.]+')
-    
-    # Проверяем, что IP-адрес существует
+
+    # Если IP-адрес найден, выводим интерфейс и его IP
     if [ -n "$ip_address" ]; then
         echo "$i. $iface: $ip_address"
         i=$((i+1))
