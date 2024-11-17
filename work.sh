@@ -42,7 +42,7 @@ select_wireguard_interface() {
     read -p "Ваш выбор (номер): " choice
 
     # Выбор интерфейса
-    selected=$(echo "$interfaces" | awk "NR==$choice")
+    selected=$(echo "$interfaces" | awk -v num="$choice" 'NR==num')
     echo "Выбранный интерфейс: $selected" >&2
 
     # Проверка на пустой выбор
