@@ -23,17 +23,16 @@ select_wireguard_interface() {
     done
 
     # Считывание выбора пользователя
-    read -p "Ваш выбор (номер): " choice
-
-    # Проверка, что выбор корректен
-    if [ "$choice" -ge 1 ] && [ "$choice" -le "${#interface_array[@]}" ]; then
-        # Возвращаем выбранный интерфейс
-        echo "${interface_array[$((choice - 1))]}"
-    else
-        # Ошибка при неверном вводе
-        echo "Неверный выбор."
-        exit 1
-    fi
+    while true; do
+        read -p "Ваш выбор (номер): " choice
+        # Проверка, что выбор является числом и в пределах диапазона
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#interface_array[@]}" ]; then
+            echo "${interface_array[$((choice - 1))]}"
+            break
+        else
+            echo "Неверный выбор. Пожалуйста, выберите номер из списка."
+        fi
+    done
 }
 
 # Основной блок
