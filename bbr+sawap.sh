@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Обновление системы
-sudo apt update
-sudo apt upgrade -y
+#sudo apt update
+#sudo apt upgrade -y
 
 # Добавляем модуль BBR
 sudo sed -i '/.*tcp_bbr.*/d' /etc/modules-load.d/modules.conf
