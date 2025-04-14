@@ -74,24 +74,20 @@ speed_test() {
 }
 
 speed() {
-    speed_test '' 'Speedtest.net'
-    speed_test '21541' 'Los Angeles, US'
-    speed_test '43860' 'Dallas, US'
-    speed_test '40879' 'Montreal, CA'
+    # Россия
+    speed_test '4503'  'Moscow, RU'
+    speed_test '5400'  'Novosibirsk, RU'
+    # Европа
     speed_test '24215' 'Paris, FR'
     speed_test '28922' 'Amsterdam, NL'
-    speed_test '24447' 'Shanghai, CN'
-    speed_test '5530' 'Chongqing, CN'
-    speed_test '60572' 'Guangzhou, CN'
-    speed_test '32155' 'Hongkong, CN'
-    speed_test '23647' 'Mumbai, IN'
-    speed_test '13623' 'Singapore, SG'
+    speed_test '1777'  'Frankfurt, DE'
+    speed_test '35124' 'London, UK'
+    speed_test '22944' 'Warsaw, PL'
+    # Азия
     speed_test '21569' 'Tokyo, JP'
-    speed_test '4503' 'Moscow, RU'
-    speed_test '10949' 'Saint Petersburg, RU'
-    speed_test '5400' 'Novosibirsk, RU'
-    speed_test '10356' 'Khabarovsk, RU'
-    speed_test '8991' 'Vladivostok, RU'
+    speed_test '24447' 'Shanghai, CN'
+    # США
+    speed_test '43860' 'Dallas, US'
 }
 
 io_test() {
