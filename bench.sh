@@ -86,19 +86,16 @@ speed_test() {
 }
 
 speed() {
-    # Россия
+    speed_test '' 'Initializing'
     speed_test '4503'  'Moscow, RU'
     speed_test '5400'  'Novosibirsk, RU'
-    # Европа
     speed_test '24215' 'Paris, FR'
     speed_test '28922' 'Amsterdam, NL'
     speed_test '1777'  'Frankfurt, DE'
     speed_test '35124' 'London, UK'
     speed_test '22944' 'Warsaw, PL'
-    # Азия
     speed_test '21569' 'Tokyo, JP'
     speed_test '24447' 'Shanghai, CN'
-    # США
     speed_test '43860' 'Dallas, US'
 }
 
