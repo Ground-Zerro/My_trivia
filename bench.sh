@@ -56,47 +56,44 @@ next() {
 }
 
 speed_test() {
-    local nodeName="$2"
-    local serverId="$1"
-    local json_result
-
-    if [ -z "$serverId" ]; then
-        json_result=$(timeout 30 ./speedtest-cli/speedtest --format=json --accept-license --accept-gdpr 2>/dev/null)
+    local server_id="$1"
+    if [ -z "$server_id" ]; then
+        speedtest --accept-license --accept-gdpr
     else
-        json_result=$(timeout 30 ./speedtest-cli/speedtest --server-id="$serverId" --format=json --accept-license --accept-gdpr 2>/dev/null)
-    fi
-
-    echo "$json_result" > ./speedtest-cli/speedtest.log
-
-    if echo "$json_result" | grep -q '"type":'; then
-        local dl_speed up_speed latency
-        dl_speed=$(echo "$json_result" | awk -F '[:,]' '/download.*bandwidth/ {print $2/125000}')
-        up_speed=$(echo "$json_result" | awk -F '[:,]' '/upload.*bandwidth/ {print $2/125000}')
-        latency=$(echo "$json_result" | awk -F ':' '/latency/ {gsub(/[ ,]/,"",$2); print $2}')
-        if [[ -n "$dl_speed" && -n "$up_speed" && -n "$latency" ]]; then
-            printf "\033[0;33m%-18s\033[0;32m%-18.2f Mbps\033[0;31m%-20.2f Mbps\033[0;36m%-12.2f ms\033[0m\n" \
-                " ${nodeName}" "$up_speed" "$dl_speed" "$latency"
-        else
-            _red "⚠️  ${nodeName}: No speed data (parsed JSON incomplete)\n"
-        fi
-    else
-        _red "❌ ${nodeName}: No valid JSON received\n"
-        grep -iE 'error|fail|timeout|not available' ./speedtest-cli/speedtest.log | head -5
+        speedtest --server-id "$server_id" --accept-license --accept-gdpr
     fi
 }
 
 speed() {
-    speed_test '' 'Initializing'
-    speed_test '4503'  'Moscow, RU'
-    speed_test '5400'  'Novosibirsk, RU'
-    speed_test '24215' 'Paris, FR'
-    speed_test '28922' 'Amsterdam, NL'
-    speed_test '1777'  'Frankfurt, DE'
-    speed_test '35124' 'London, UK'
-    speed_test '22944' 'Warsaw, PL'
-    speed_test '21569' 'Tokyo, JP'
-    speed_test '24447' 'Shanghai, CN'
-    speed_test '43860' 'Dallas, US'
+    echo "Москва, Россия (MTS):"
+    speed_test 1907
+
+    echo "Новосибирск, Россия (Tele2):"
+    speed_test 6430
+
+    echo "Париж, Франция (Scaleway):"
+    speed_test 61933
+
+    echo "Амстердам, Нидерланды (31173 Services AB):"
+    speed_test 23094
+
+    echo "Франкфурт, Германия (Melbicom):"
+    speed_test 37492
+
+    echo "Лондон, Великобритания (UK Dedicated Servers):"
+    speed_test 30376
+
+    echo "Варшава, Польша (Orange Polska):"
+    speed_test 4166
+
+    echo "Токио, Япония (GSL Networks):"
+    speed_test 50686
+
+    echo "Шанхай, Китай (China Unicom 5G):"
+    speed_test 24447
+
+    echo "Даллас, США (Hivelocity):"
+    speed_test 22288
 }
 
 io_test() {
