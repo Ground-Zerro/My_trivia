@@ -57,19 +57,31 @@ next() {
 
 speed_test() {
     local nodeName="$2"
-    if [ -z "$1" ];then
-        ./speedtest-cli/speedtest --progress=no --accept-license --accept-gdpr >./speedtest-cli/speedtest.log 2>&1
+    local serverId="$1"
+    local result
+
+    if [ -z "$serverId" ]; then
+        result=$(timeout 30 ./speedtest-cli/speedtest --progress=no --accept-license --accept-gdpr 2>&1)
     else
-        ./speedtest-cli/speedtest --progress=no --server-id="$1" --accept-license --accept-gdpr >./speedtest-cli/speedtest.log 2>&1
+        result=$(timeout 30 ./speedtest-cli/speedtest --progress=no --server-id="$serverId" --accept-license --accept-gdpr 2>&1)
     fi
+    echo "$result" > ./speedtest-cli/speedtest.log
+
     if [ $? -eq 0 ]; then
         local dl_speed up_speed latency
-        dl_speed=$(awk '/Download/{print $3" "$4}' ./speedtest-cli/speedtest.log)
-        up_speed=$(awk '/Upload/{print $3" "$4}' ./speedtest-cli/speedtest.log)
-        latency=$(awk '/Latency/{print $3" "$4}' ./speedtest-cli/speedtest.log)
-        if [[ -n "${dl_speed}" && -n "${up_speed}" && -n "${latency}" ]]; then
-            printf "\033[0;33m%-18s\033[0;32m%-18s\033[0;31m%-20s\033[0;36m%-12s\033[0m\n" " ${nodeName}" "${up_speed}" "${dl_speed}" "${latency}"
+        dl_speed=$(echo "$result" | awk '/Download/{print $3" "$4}')
+        up_speed=$(echo "$result" | awk '/Upload/{print $3" "$4}')
+        latency=$(echo "$result" | awk '/Latency/{print $3" "$4}')
+        if [[ -n "$dl_speed" && -n "$up_speed" && -n "$latency" ]]; then
+            printf "\033[0;33m%-18s\033[0;32m%-18s\033[0;31m%-20s\033[0;36m%-12s\033[0m\n" \
+                " ${nodeName}" "$up_speed" "$dl_speed" "$latency"
+        else
+            _red "⚠️  ${nodeName}: No speed data (incomplete output)\n"
+            grep -iE 'error|fail|timeout|could not|not available' ./speedtest-cli/speedtest.log | head -5
         fi
+    else
+        _red "❌ ${nodeName}: Test failed or timed out\n"
+        grep -iE 'error|fail|timeout|could not|not available' ./speedtest-cli/speedtest.log | head -5
     fi
 }
 
