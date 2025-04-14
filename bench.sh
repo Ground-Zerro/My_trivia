@@ -58,30 +58,30 @@ next() {
 speed_test() {
     local nodeName="$2"
     local serverId="$1"
-    local result
+    local json_result
 
     if [ -z "$serverId" ]; then
-        result=$(timeout 30 ./speedtest-cli/speedtest --progress=no --accept-license --accept-gdpr 2>&1)
+        json_result=$(timeout 30 ./speedtest-cli/speedtest --format=json --accept-license --accept-gdpr 2>/dev/null)
     else
-        result=$(timeout 30 ./speedtest-cli/speedtest --progress=no --server-id="$serverId" --accept-license --accept-gdpr 2>&1)
+        json_result=$(timeout 30 ./speedtest-cli/speedtest --server-id="$serverId" --format=json --accept-license --accept-gdpr 2>/dev/null)
     fi
-    echo "$result" > ./speedtest-cli/speedtest.log
 
-    if [ $? -eq 0 ]; then
+    echo "$json_result" > ./speedtest-cli/speedtest.log
+
+    if echo "$json_result" | grep -q '"type":'; then
         local dl_speed up_speed latency
-        dl_speed=$(echo "$result" | awk '/Download/{print $3" "$4}')
-        up_speed=$(echo "$result" | awk '/Upload/{print $3" "$4}')
-        latency=$(echo "$result" | awk '/Latency/{print $3" "$4}')
+        dl_speed=$(echo "$json_result" | awk -F '[:,]' '/download.*bandwidth/ {print $2/125000}')
+        up_speed=$(echo "$json_result" | awk -F '[:,]' '/upload.*bandwidth/ {print $2/125000}')
+        latency=$(echo "$json_result" | awk -F ':' '/latency/ {gsub(/[ ,]/,"",$2); print $2}')
         if [[ -n "$dl_speed" && -n "$up_speed" && -n "$latency" ]]; then
-            printf "\033[0;33m%-18s\033[0;32m%-18s\033[0;31m%-20s\033[0;36m%-12s\033[0m\n" \
+            printf "\033[0;33m%-18s\033[0;32m%-18.2f Mbps\033[0;31m%-20.2f Mbps\033[0;36m%-12.2f ms\033[0m\n" \
                 " ${nodeName}" "$up_speed" "$dl_speed" "$latency"
         else
-            _red "⚠️  ${nodeName}: No speed data (incomplete output)\n"
-            grep -iE 'error|fail|timeout|could not|not available' ./speedtest-cli/speedtest.log | head -5
+            _red "⚠️  ${nodeName}: No speed data (parsed JSON incomplete)\n"
         fi
     else
-        _red "❌ ${nodeName}: Test failed or timed out\n"
-        grep -iE 'error|fail|timeout|could not|not available' ./speedtest-cli/speedtest.log | head -5
+        _red "❌ ${nodeName}: No valid JSON received\n"
+        grep -iE 'error|fail|timeout|not available' ./speedtest-cli/speedtest.log | head -5
     fi
 }
 
