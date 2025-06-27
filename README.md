@@ -34,4 +34,7 @@ powershell -Command "irm https://github.com/Ground-Zerro/My_trivia/raw/refs/head
 wget -qO- https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/main/bench.sh | bash
 ```
 
-
+**OPEN WRT - обновить все пакеты с перезаписью конфликтных файлов**
+```
+opkg update && opkg list-upgradable | cut -f 1 -d ' ' | while read package; do opkg upgrade --force-overwrite "$package"; done
+```
