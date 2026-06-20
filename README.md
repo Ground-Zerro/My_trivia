@@ -38,3 +38,29 @@ wget -qO- https://raw.githubusercontent.com/Ground-Zerro/My_trivia/refs/heads/ma
 ```
 opkg update && opkg list-upgradable | cut -f 1 -d ' ' | while read package; do opkg upgrade --force-overwrite "$package"; done
 ```
+
+
+**[SSL Certificate Manager](https://github.com/Ground-Zerro/My_trivia/blob/main/ssl-manager.sh)** — Universal SSL management without panel dependency
+```
+curl -fsSL https://raw.githubusercontent.com/Ground-Zerro/My_trivia/main/ssl-manager.sh -o /usr/bin/ssl-manager && chmod +x /usr/bin/ssl-manager
+```
+
+Features:
+- Issue Let's Encrypt certificates (domain via HTTP-01, Cloudflare DNS, IP shortlived ~6 days)
+- Auto-renewal via acme.sh cron (zero-config)
+- Revoke, force renew, show existing certificates
+- Configurable reload command (nginx, apache, caddy, etc.)
+- Works on Debian/Ubuntu, CentOS/RHEL, Arch, Alpine, openSUSE
+
+Usage:
+```
+ssl-manager              # interactive menu
+ssl-manager issue        # issue cert for domain
+ssl-manager issue cf     # issue cert via Cloudflare DNS
+ssl-manager issue ip     # issue cert for IP address
+ssl-manager revoke       # revoke & remove certificate
+ssl-manager renew        # force renew
+ssl-manager list         # show existing certificates
+ssl-manager status       # auto-renewal status
+ssl-manager config       # set reload command
+```
