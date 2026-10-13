@@ -1,720 +1,512 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-SCRIPT_VERSION="1.0.0"
-CONF_DIR="/root/ssl"
-CONF_FILE="${CONF_DIR}/ssl.conf"
-CERT_BASE_DIR="/root/cert"
+readonly CONF_DIR=/root/ssl
+readonly CONF_FILE=$CONF_DIR/ssl.conf
+readonly CERT_ROOT=/root/cert
+readonly ACME_WEBROOT=/var/www/acme
+readonly IP_RENEW_DAYS=3
 
-red='\033[0;31m'
-green='\033[0;32m'
-blue='\033[0;34m'
-yellow='\033[0;33m'
-plain='\033[0m'
+export HOME=${HOME:-/root}
+readonly ACME_HOME=$HOME/.acme.sh
+readonly ACME=$ACME_HOME/acme.sh
 
-LOGD() { echo -e "${yellow}[DEG] $* ${plain}"; }
-LOGE() { echo -e "${red}[ERR] $* ${plain}"; }
-LOGI() { echo -e "${green}[INF] $* ${plain}"; }
-LOGW() { echo -e "${yellow}[WRN] $* ${plain}"; }
+readonly RED='\033[0;31m' GREEN='\033[0;32m' YELLOW='\033[0;33m' PLAIN='\033[0m'
 
-is_port_in_use() {
-    local port="$1"
-    if command -v ss > /dev/null 2>&1; then
-        ss -ltn 2> /dev/null | awk -v p=":${port}$" '$4 ~ p {exit 0} END {exit 1}'
-        return
-    fi
-    if command -v netstat > /dev/null 2>&1; then
-        netstat -lnt 2> /dev/null | awk -v p=":${port} " '$4 ~ p {exit 0} END {exit 1}'
-        return
-    fi
-    if command -v lsof > /dev/null 2>&1; then
-        lsof -nP -iTCP:${port} -sTCP:LISTEN > /dev/null 2>&1 && return 0
-    fi
-    return 1
-}
+CHALLENGE=()
 
-is_ipv4() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && return 0 || return 1; }
-is_ipv6() { [[ "$1" =~ : ]] && return 0 || return 1; }
-is_domain() { [[ "$1" =~ ^([A-Za-z0-9](-*[A-Za-z0-9])*\.)+(xn--[a-z0-9]{2,}|[A-Za-z]{2,})$ ]] && return 0 || return 1; }
+log()  { printf '%b[INF]%b %s\n' "$GREEN" "$PLAIN" "$*" >&2; }
+warn() { printf '%b[WRN]%b %s\n' "$YELLOW" "$PLAIN" "$*" >&2; }
+die()  { printf '%b[ERR]%b %s\n' "$RED" "$PLAIN" "$*" >&2; exit 1; }
 
-acme_listen_flag() {
-    if ip -4 addr show scope global 2> /dev/null | grep -q "inet "; then
-        echo ""
-    else
-        echo "--listen-v6"
-    fi
+interactive() { [ -t 0 ]; }
+
+ask() {
+    local answer
+    interactive || die "$1 is required"
+    read -rp "$1${2:+ [$2]}: " answer
+    printf '%s' "${answer:-${2:-}}"
 }
 
 confirm() {
-    if [[ $# > 1 ]]; then
-        echo && read -rp "$1 [Default $2]: " temp
-        [[ "${temp}" == "" ]] && temp=$2
-    else
-        read -rp "$1 [y/n]: " temp
-    fi
-    [[ "${temp}" == "y" || "${temp}" == "Y" ]] && return 0 || return 1
+    local answer
+    interactive || return 0
+    read -rp "$1 [y/N]: " answer
+    [[ $answer == [yY] ]]
 }
 
-before_show_menu() {
-    echo && echo -n -e "${yellow}Press enter to return to the menu: ${plain}" && read -r temp
-    ssl_menu
+config_get() {
+    [ ! -r "$CONF_FILE" ] || sed -n "s/^$1=//p" "$CONF_FILE"
 }
 
-[[ $EUID -ne 0 ]] && LOGE "ERROR: You must be root to run this script! \n" && exit 1
-
-if [[ -f /etc/os-release ]]; then
-    source /etc/os-release
-    release=$ID
-elif [[ -f /usr/lib/os-release ]]; then
-    source /usr/lib/os-release
-    release=$ID
-else
-    echo "Failed to check the system OS." >&2
-    exit 1
-fi
-
-os_version=""
-os_version=$(grep "^VERSION_ID" /etc/os-release | cut -d '=' -f2 | tr -d '"' | tr -d '.')
-
-mkdir -p "${CONF_DIR}" "${CERT_BASE_DIR}"
-
-load_config() {
-    RELOAD_CMD=""
-    CERT_DAYS=""
-    DEFAULT_WEB_PORT="80"
-    DEFAULT_CF_EMAIL=""
-    if [[ -f "${CONF_FILE}" ]]; then
-        source "${CONF_FILE}"
-    fi
+config_set() {
+    local key=$1 value=$2
+    install -d -m 0700 "$CONF_DIR"
+    touch "$CONF_FILE"
+    chmod 0600 "$CONF_FILE"
+    sed -i "/^$key=/d" "$CONF_FILE"
+    printf '%s=%s\n' "$key" "$value" >> "$CONF_FILE"
 }
 
-save_config() {
-    cat > "${CONF_FILE}" <<EOF
-RELOAD_CMD="${RELOAD_CMD}"
-CERT_DAYS="${CERT_DAYS}"
-DEFAULT_WEB_PORT="${DEFAULT_WEB_PORT}"
-DEFAULT_CF_EMAIL="${DEFAULT_CF_EMAIL}"
-EOF
-    chmod 600 "${CONF_FILE}"
+is_ipv4() {
+    local octet="(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
+    [[ $1 =~ ^$octet(\.$octet){3}$ ]]
 }
 
-detect_ip() {
-    local URL_lists=(
-        "https://api4.ipify.org"
-        "https://ipv4.icanhazip.com"
-        "https://v4.api.ipinfo.io/ip"
-        "https://ipv4.myexternalip.com/raw"
-        "https://4.ident.me"
-        "https://check-host.net/ip"
-    )
-    local server_ip=""
-    for ip_address in "${URL_lists[@]}"; do
-        local response=$(curl -s -w "\n%{http_code}" --max-time 3 "${ip_address}" 2> /dev/null)
-        local http_code=$(echo "$response" | tail -n1)
-        local ip_result=$(echo "$response" | head -n-1 | tr -d '[:space:]"')
-        if [[ "${http_code}" == "200" && "${ip_result}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            server_ip="${ip_result}"
-            break
-        fi
+is_ipv6() {
+    [[ $1 =~ ^[0-9a-f:]+$ && $1 == *:*:* ]]
+}
+
+is_domain() {
+    [[ $1 =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,63}|xn--[a-z0-9-]{2,59})$ ]]
+}
+
+install_dependencies() {
+    local cmd missing=0
+    for cmd in curl socat crontab openssl ss; do
+        command -v "$cmd" >/dev/null || missing=1
     done
-    echo "${server_ip}"
+    [ "$missing" -eq 1 ] || return 0
+
+    log "Installing curl, socat, cron, openssl, iproute2"
+    if command -v apt-get >/dev/null; then
+        DEBIAN_FRONTEND=noninteractive apt-get -qq -o DPkg::Lock::Timeout=600 update
+        DEBIAN_FRONTEND=noninteractive apt-get -qq -o DPkg::Lock::Timeout=600 -y install curl socat cron openssl ca-certificates iproute2
+    elif command -v dnf >/dev/null; then
+        dnf -q -y install curl socat cronie openssl iproute
+    elif command -v yum >/dev/null; then
+        yum -q -y install curl socat cronie openssl iproute
+    elif command -v pacman >/dev/null; then
+        pacman -Sy --noconfirm --needed curl socat cronie openssl iproute2
+    elif command -v zypper >/dev/null; then
+        zypper -q -n install curl socat cronie openssl iproute2
+    elif command -v apk >/dev/null; then
+        apk add -q curl socat openssl iproute2
+    else
+        die "Unsupported package manager: install curl, socat, cron, openssl and iproute2 manually"
+    fi
 }
 
-prompt_ip() {
-    local server_ip
-    server_ip=$(detect_ip)
-    if [[ -z "$server_ip" ]]; then
-        LOGW "Could not auto-detect server IP."
-        while [[ -z "$server_ip" ]]; do
-            read -rp "Please enter your server's public IPv4 address: " server_ip
-            server_ip="${server_ip// /}"
-            if [[ ! "$server_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                LOGE "Invalid IPv4 address."
-                server_ip=""
+enable_cron() {
+    local unit
+    if [ -d /run/systemd/system ]; then
+        for unit in cron crond cronie; do
+            if systemctl list-unit-files "$unit.service" --no-legend 2>/dev/null | grep -q .; then
+                systemctl enable --now "$unit.service" >/dev/null 2>&1
+                return
             fi
         done
+    elif command -v rc-service >/dev/null; then
+        rc-update add crond default >/dev/null 2>&1 || true
+        rc-service crond start >/dev/null 2>&1 || true
+        return
     fi
-    echo "${server_ip}"
+    die "No cron service found"
 }
 
-install_acme() {
-    if command -v ~/.acme.sh/acme.sh &> /dev/null; then
-        LOGI "acme.sh is already installed."
+bootstrap() {
+    [ "$(id -u)" -eq 0 ] || die "Run as root"
+    install_dependencies
+    enable_cron
+    if [ ! -x "$ACME" ]; then
+        log "Installing acme.sh"
+        curl -fsSL https://get.acme.sh | sh >/dev/null 2>&1 || die "acme.sh installation failed"
+        [ -x "$ACME" ] || die "acme.sh installation failed"
+        "$ACME" --upgrade --auto-upgrade >/dev/null
+    fi
+    "$ACME" --set-default-ca --server letsencrypt >/dev/null
+    "$ACME" --install-cronjob >/dev/null 2>&1
+    install -d -m 0700 "$CERT_ROOT"
+    sync_http_modes
+}
+
+state_dir() {
+    local dir
+    for dir in "$ACME_HOME/${1}_ecc" "$ACME_HOME/$1"; do
+        if [ -f "$dir/$1.conf" ]; then
+            printf '%s' "$dir"
+            return
+        fi
+    done
+    return 1
+}
+
+state_value() {
+    local dir
+    dir=$(state_dir "$1") || return 0
+    sed -n "s/^$2='\{0,1\}\([^']*\)'\{0,1\}$/\1/p" "$dir/$1.conf"
+}
+
+has_certificate() {
+    local dir
+    dir=$(state_dir "$1") && [ -s "$dir/fullchain.cer" ] && [ -s "$dir/$1.key" ]
+}
+
+forget_state() {
+    "$ACME" --remove -d "$1" >/dev/null 2>&1 || true
+    rm -rf "${ACME_HOME:?}/$1" "${ACME_HOME:?}/${1}_ecc"
+}
+
+assert_owned() {
+    local installed
+    installed=$(state_value "$1" Le_RealFullChainPath)
+    if [ -n "$installed" ] && [ "$installed" != "$CERT_ROOT/$1/fullchain.pem" ]; then
+        die "Certificate for $1 is installed to $installed by another tool (for example the mirror deploy), manage it there"
+    fi
+}
+
+port80_owner() {
+    ss -Hltnp 'sport = :80' | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -n1
+}
+
+serves_webroot() {
+    local host=$1 token body
+    [ -d "$ACME_WEBROOT/.well-known/acme-challenge" ] || return 1
+    token=probe-$$-$RANDOM
+    printf '%s' "$token" > "$ACME_WEBROOT/.well-known/acme-challenge/$token"
+    [[ $host == *:* ]] && host="[$host]"
+    body=$(curl -s --max-time 5 --connect-to ::127.0.0.1: "http://$host/.well-known/acme-challenge/$token" || true)
+    rm -f "$ACME_WEBROOT/.well-known/acme-challenge/$token"
+    [ "$body" = "$token" ]
+}
+
+http_mode() {
+    local owner
+    if ! ss -Hltn 'sport = :80' | grep -q .; then
+        printf no
+        return
+    fi
+    if serves_webroot "$1"; then
+        printf '%s' "$ACME_WEBROOT"
+        return
+    fi
+    owner=$(port80_owner)
+    die "Port 80 is taken by ${owner:-another process}, which does not serve http://$1/.well-known/acme-challenge/ from $ACME_WEBROOT.
+      Add to its port-80 server:  location ^~ /.well-known/acme-challenge/ { root $ACME_WEBROOT; }
+      and create the directory:   mkdir -p $ACME_WEBROOT/.well-known/acme-challenge"
+}
+
+select_http_challenge() {
+    local mode
+    mode=$(http_mode "$1")
+    if [ "$mode" = no ]; then
+        CHALLENGE=(--standalone)
+        ip -4 addr show scope global 2>/dev/null | grep -q inet || CHALLENGE+=(--listen-v6)
+    else
+        CHALLENGE=(--webroot "$mode")
+    fi
+    log "HTTP-01 validation: $(validation_method "$mode")"
+}
+
+sync_http_mode() {
+    local id=$1 saved mode
+    saved=$(state_value "$id" Le_Webroot)
+    [[ $saved == no || $saved == /* ]] || return 0
+    if ! mode=$(http_mode "$id" 2>/dev/null); then
+        warn "$id: port 80 is taken by $(port80_owner) without $ACME_WEBROOT, renewal will fail; run issue for details"
         return 0
     fi
-    LOGI "Installing acme.sh..."
-    cd ~ || return 1
-    curl -s https://get.acme.sh | sh
-    if [ $? -ne 0 ]; then
-        LOGE "Installation of acme.sh failed."
-        return 1
-    fi
-    LOGI "Installation of acme.sh succeeded."
-    return 0
+    [ "$mode" != "$saved" ] || return 0
+    sed -i "s|^Le_Webroot=.*|Le_Webroot='$mode'|" "$(state_dir "$id")/$id.conf"
+    log "$id: renewal switched to $(validation_method "$mode")"
 }
 
-install_socat() {
-    case "${release}" in
-        ubuntu | debian | armbian)
-            apt-get update > /dev/null 2>&1 && apt-get install socat -y > /dev/null 2>&1
-            ;;
-        fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol)
-            dnf -y update > /dev/null 2>&1 && dnf -y install socat > /dev/null 2>&1
-            ;;
-        centos)
-            if [[ "${VERSION_ID}" =~ ^7 ]]; then
-                yum -y update > /dev/null 2>&1 && yum -y install socat > /dev/null 2>&1
-            else
-                dnf -y update > /dev/null 2>&1 && dnf -y install socat > /dev/null 2>&1
-            fi
-            ;;
-        arch | manjaro | parch)
-            pacman -Sy --noconfirm socat > /dev/null 2>&1
-            ;;
-        opensuse-tumbleweed | opensuse-leap)
-            zypper refresh > /dev/null 2>&1 && zypper -q install -y socat > /dev/null 2>&1
-            ;;
-        alpine)
-            apk add socat curl openssl > /dev/null 2>&1
-            ;;
-        *)
-            LOGW "Unsupported OS for automatic socat installation"
-            ;;
-    esac
-}
-
-prompt_reload_cmd() {
-    load_config
-    local default_cmd="${RELOAD_CMD:-}"
-    LOGI "Current reload command: ${default_cmd:-<none>}"
-    LOGI "This command runs after every certificate issue/renew."
-    read -rp "Set reload command (leave empty for none, 'default' to auto-detect): " input_cmd
-    if [[ "$input_cmd" == "default" ]]; then
-        if systemctl is-active --quiet nginx 2>/dev/null; then
-            RELOAD_CMD="systemctl reload nginx"
-        elif systemctl is-active --quiet apache2 2>/dev/null; then
-            RELOAD_CMD="systemctl reload apache2"
-        elif systemctl is-active --quiet httpd 2>/dev/null; then
-            RELOAD_CMD="systemctl reload httpd"
-        elif systemctl is-active --quiet caddy 2>/dev/null; then
-            RELOAD_CMD="systemctl reload caddy"
-        else
-            LOGW "No common web server detected. Reload command cleared."
-            RELOAD_CMD=""
-        fi
-    elif [[ -n "$input_cmd" ]]; then
-        RELOAD_CMD="${input_cmd}"
-    fi
-    save_config
-    LOGI "Reload command set to: ${RELOAD_CMD:-<none>}"
-}
-
-ssl_cert_issue_domain() {
-    if ! command -v ~/.acme.sh/acme.sh &> /dev/null; then
-        install_acme
-        if [ $? -ne 0 ]; then
-            LOGE "install acme failed, please check logs"
-            return 1
-        fi
-    fi
-
-    install_socat
-
-    local domain=""
-    while true; do
-        read -rp "Please enter your domain name: " domain
-        domain="${domain// /}"
-        if [[ -z "$domain" ]]; then
-            LOGE "Domain name cannot be empty."
-            continue
-        fi
-        if ! is_domain "$domain"; then
-            LOGE "Invalid domain format: ${domain}."
-            continue
-        fi
-        break
+sync_http_modes() {
+    local id
+    for id in $(managed_certificates); do
+        sync_http_mode "$id"
     done
-    LOGD "Your domain is: ${domain}, checking it..."
-
-    local cert_exists=0
-    if ~/.acme.sh/acme.sh --list 2> /dev/null | awk '{print $1}' | grep -Fxq "${domain}"; then
-        local acmeCertDir=""
-        if [[ -s ~/.acme.sh/${domain}_ecc/fullchain.cer && -s ~/.acme.sh/${domain}_ecc/${domain}.key ]]; then
-            acmeCertDir=~/.acme.sh/${domain}_ecc
-        elif [[ -s ~/.acme.sh/${domain}/fullchain.cer && -s ~/.acme.sh/${domain}/${domain}.key ]]; then
-            acmeCertDir=~/.acme.sh/${domain}
-        fi
-        if [[ -n "${acmeCertDir}" ]]; then
-            cert_exists=1
-            LOGI "Existing certificate found for ${domain}, will reuse it."
-        else
-            LOGW "Incomplete acme.sh state for ${domain}; cleaning up."
-            rm -rf ~/.acme.sh/${domain} ~/.acme.sh/${domain}_ecc
-        fi
-    fi
-    if [[ ${cert_exists} -eq 0 ]]; then
-        LOGI "Your domain is ready for issuing certificates now..."
-    fi
-
-    certPath="${CERT_BASE_DIR}/${domain}"
-    rm -rf "$certPath"
-    mkdir -p "$certPath"
-
-    load_config
-    local WebPort="${DEFAULT_WEB_PORT}"
-    read -rp "Port for ACME HTTP-01 listener [${WebPort}]: " input_port
-    [[ -n "$input_port" ]] && WebPort="$input_port"
-    if [[ ${WebPort} -gt 65535 || ${WebPort} -lt 1 ]]; then
-        LOGE "Invalid port, using default 80."
-        WebPort=80
-    fi
-    LOGI "Will use port: ${WebPort} to issue certificates."
-
-    if [[ ${cert_exists} -eq 0 ]]; then
-        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force
-        ~/.acme.sh/acme.sh --issue -d ${domain} $(acme_listen_flag) --standalone --httpport ${WebPort} --force
-        if [ $? -ne 0 ]; then
-            LOGE "Issuing certificate failed."
-            rm -rf ~/.acme.sh/${domain} ~/.acme.sh/${domain}_ecc
-            return 1
-        fi
-        LOGI "Issuing certificate succeeded, installing..."
-    else
-        LOGI "Using existing certificate, installing..."
-    fi
-
-    local reloadCmd="${RELOAD_CMD:-}"
-    if [[ -z "$reloadCmd" ]]; then
-        LOGI "No reload command configured."
-        read -rp "Enter a reload command (leave empty for none): " reloadCmd
-    fi
-
-    ~/.acme.sh/acme.sh --installcert -d ${domain} \
-        --key-file "${certPath}/privkey.pem" \
-        --fullchain-file "${certPath}/fullchain.pem" \
-        ${reloadCmd:+--reloadcmd "${reloadCmd}"} 2>&1
-    local installRc=$?
-
-    if [[ -f "${certPath}/privkey.pem" && -f "${certPath}/fullchain.pem" && (${installRc} -eq 0 || $(wc -c < "${certPath}/fullchain.pem") -gt 0) ]]; then
-        LOGI "Installing certificate succeeded, enabling auto renew..."
-    else
-        LOGE "Installing certificate failed."
-        if [[ ${cert_exists} -eq 0 ]]; then
-            rm -rf ~/.acme.sh/${domain} ~/.acme.sh/${domain}_ecc
-        fi
-        return 1
-    fi
-
-    ~/.acme.sh/acme.sh --upgrade --auto-upgrade
-    chmod 600 "${certPath}/privkey.pem"
-    chmod 644 "${certPath}/fullchain.pem"
-
-    LOGI "Certificate installed successfully:"
-    LOGI "  Domain: ${domain}"
-    LOGI "  Certificate: ${certPath}/fullchain.pem"
-    LOGI "  Private Key: ${certPath}/privkey.pem"
-    LOGI "  Auto-renewal: enabled (acme.sh cron)"
-    ls -lah "${certPath}"/
-
-    return 0
 }
 
-ssl_cert_issue_cloudflare() {
-    if ! command -v ~/.acme.sh/acme.sh &> /dev/null; then
-        install_acme
-        if [ $? -ne 0 ]; then
-            LOGE "install acme failed, please check logs"
-            return 1
-        fi
-    fi
-
-    LOGI "****** Cloudflare DNS Certificate ******"
-    LOGI "You need a Cloudflare API Token (or Global API Key) and a domain."
-
-    confirm "Do you want to proceed? [y/n]" "y"
-    [[ $? -ne 0 ]] && return 0
-
-    CF_Domain=""
-    read -rp "Input your domain: " CF_Domain
-    LOGD "Domain: ${CF_Domain}"
-
-    load_config
-    local saved_email="${DEFAULT_CF_EMAIL}"
-
-    CF_KeyType=""
-    read -rp "Using API Token or Global API Key? (t/g) [Default t]: " CF_KeyType
-    CF_KeyType=${CF_KeyType:-t}
-
-    if [[ "$CF_KeyType" == "g" || "$CF_KeyType" == "G" ]]; then
-        CF_GlobalKey=""
-        CF_AccountEmail=""
-        read -rp "Global API Key: " CF_GlobalKey
-        read -rp "Account email [${saved_email}]: " CF_AccountEmail
-        CF_AccountEmail="${CF_AccountEmail:-${saved_email}}"
-        export CF_Key="${CF_GlobalKey}"
-        export CF_Email="${CF_AccountEmail}"
-        DEFAULT_CF_EMAIL="${CF_AccountEmail}"
+reload_command() {
+    local saved
+    saved=$(config_get RELOAD_CMD)
+    if interactive; then
+        ask "Command to run after every issue/renewal (empty for none)" "$saved"
     else
-        CF_ApiToken=""
-        read -rp "API Token: " CF_ApiToken
-        export CF_Token="${CF_ApiToken}"
-    fi
-    save_config
-
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force
-    if [ $? -ne 0 ]; then
-        LOGE "Default CA setup failed."
-        return 1
-    fi
-
-    ~/.acme.sh/acme.sh --issue --dns dns_cf -d ${CF_Domain} -d *.${CF_Domain} --log --force
-    if [ $? -ne 0 ]; then
-        LOGE "Certificate issuance failed."
-        return 1
-    fi
-    LOGI "Certificate issued successfully, Installing..."
-
-    certPath="${CERT_BASE_DIR}/${CF_Domain}"
-    rm -rf "${certPath}"
-    mkdir -p "${certPath}"
-
-    local reloadCmd="${RELOAD_CMD:-}"
-    if [[ -z "$reloadCmd" ]]; then
-        read -rp "Enter a reload command (leave empty for none): " reloadCmd
-    fi
-
-    ~/.acme.sh/acme.sh --installcert -d ${CF_Domain} -d *.${CF_Domain} \
-        --key-file "${certPath}/privkey.pem" \
-        --fullchain-file "${certPath}/fullchain.pem" \
-        ${reloadCmd:+--reloadcmd "${reloadCmd}"}
-    if [ $? -ne 0 ]; then
-        LOGE "Certificate installation failed."
-        return 1
-    fi
-
-    ~/.acme.sh/acme.sh --upgrade --auto-upgrade
-    chmod 600 "${certPath}/privkey.pem"
-    chmod 644 "${certPath}/fullchain.pem"
-
-    LOGI "Certificate installed successfully:"
-    LOGI "  Domain: ${CF_Domain}"
-    LOGI "  Certificate: ${certPath}/fullchain.pem"
-    LOGI "  Private Key: ${certPath}/privkey.pem"
-    LOGI "  Auto-renewal: enabled (acme.sh cron)"
-    ls -lah "${certPath}"/*
-
-    return 0
-}
-
-ssl_cert_issue_ip() {
-    LOGI "Let's Encrypt SSL Certificate for IP Address (shortlived ~6 days, auto-renews)"
-    LOGI "Port 80 must be open and accessible from the internet."
-
-    confirm "Do you want to proceed?" "y"
-    [[ $? -ne 0 ]] && return 0
-
-    local server_ip
-    server_ip=$(prompt_ip)
-    LOGI "Server IP: ${server_ip}"
-
-    local ipv6_addr=""
-    read -rp "Optional IPv6 address (leave empty to skip): " ipv6_addr
-    ipv6_addr="${ipv6_addr// /}"
-
-    if ! command -v ~/.acme.sh/acme.sh &> /dev/null; then
-        install_acme
-        if [ $? -ne 0 ]; then
-            LOGE "Failed to install acme.sh"
-            return 1
-        fi
-    fi
-
-    install_socat
-
-    certPath="${CERT_BASE_DIR}/ip"
-    mkdir -p "$certPath"
-
-    local domain_args="-d ${server_ip}"
-    if [[ -n "$ipv6_addr" ]] && is_ipv6 "$ipv6_addr"; then
-        domain_args="${domain_args} -d ${ipv6_addr}"
-        LOGI "Including IPv6 address: ${ipv6_addr}"
-    fi
-
-    load_config
-    local WebPort="${DEFAULT_WEB_PORT}"
-    read -rp "Port for ACME HTTP-01 listener [${WebPort}]: " input_port
-    [[ -n "$input_port" ]] && WebPort="$input_port"
-    if ! [[ "${WebPort}" =~ ^[0-9]+$ ]] || ((WebPort < 1 || WebPort > 65535)); then
-        LOGE "Invalid port. Falling back to 80."
-        WebPort=80
-    fi
-    LOGI "Using port ${WebPort} for IP certificate."
-
-    while true; do
-        if is_port_in_use "${WebPort}"; then
-            LOGI "Port ${WebPort} is currently in use."
-            local alt_port=""
-            read -rp "Enter another port (leave empty to abort): " alt_port
-            alt_port="${alt_port// /}"
-            if [[ -z "${alt_port}" ]]; then
-                LOGE "Port ${WebPort} busy; cannot proceed."
-                return 1
-            fi
-            if ! [[ "${alt_port}" =~ ^[0-9]+$ ]] || ((alt_port < 1 || alt_port > 65535)); then
-                LOGE "Invalid port."
-                return 1
-            fi
-            WebPort="${alt_port}"
-            continue
-        else
-            LOGI "Port ${WebPort} is free."
-            break
-        fi
-    done
-
-    local reloadCmd="${RELOAD_CMD:-}"
-
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt --force
-    ~/.acme.sh/acme.sh --issue \
-        ${domain_args} \
-        --standalone \
-        --server letsencrypt \
-        --certificate-profile shortlived \
-        --days 6 \
-        --httpport ${WebPort} \
-        --force
-
-    if [ $? -ne 0 ]; then
-        LOGE "Failed to issue certificate for IP: ${server_ip}"
-        rm -rf ~/.acme.sh/${server_ip} ~/.acme.sh/${server_ip}_ecc 2> /dev/null
-        [[ -n "$ipv6_addr" ]] && rm -rf ~/.acme.sh/${ipv6_addr} ~/.acme.sh/${ipv6_addr}_ecc 2> /dev/null
-        rm -rf "${certPath}" 2> /dev/null
-        return 1
-    fi
-    LOGI "Certificate issued successfully for IP: ${server_ip}"
-
-    ~/.acme.sh/acme.sh --installcert -d ${server_ip} \
-        --key-file "${certPath}/privkey.pem" \
-        --fullchain-file "${certPath}/fullchain.pem" \
-        ${reloadCmd:+--reloadcmd "${reloadCmd}"} 2>&1 || true
-
-    if [[ ! -f "${certPath}/fullchain.pem" || ! -f "${certPath}/privkey.pem" ]]; then
-        LOGE "Certificate files not found after installation."
-        rm -rf ~/.acme.sh/${server_ip} ~/.acme.sh/${server_ip}_ecc 2> /dev/null
-        [[ -n "$ipv6_addr" ]] && rm -rf ~/.acme.sh/${ipv6_addr} ~/.acme.sh/${ipv6_addr}_ecc 2> /dev/null
-        rm -rf "${certPath}" 2> /dev/null
-        return 1
-    fi
-
-    LOGI "Certificate installed successfully"
-    ~/.acme.sh/acme.sh --upgrade --auto-upgrade > /dev/null 2>&1
-    chmod 600 "${certPath}/privkey.pem"
-    chmod 644 "${certPath}/fullchain.pem"
-
-    LOGI "Certificate files:"
-    LOGI "  IP: ${server_ip}"
-    LOGI "  Certificate: ${certPath}/fullchain.pem"
-    LOGI "  Private Key: ${certPath}/privkey.pem"
-    LOGI "  Validity: ~6 days (auto-renews via acme.sh cron)"
-
-    return 0
-}
-
-ssl_revoke() {
-    local domains=$(find "${CERT_BASE_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null)
-    if [ -z "$domains" ]; then
-        echo "No certificates found to revoke."
-        return
-    fi
-    echo "Existing certificates:"
-    echo "$domains"
-    read -rp "Enter domain to revoke and remove: " domain
-    if echo "$domains" | grep -qw "$domain"; then
-        local acme_ids="${domain}"
-        if [[ "${domain}" == "ip" ]]; then
-            acme_ids=$(~/.acme.sh/acme.sh --list 2> /dev/null | awk 'NR>1 {print $1}' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$|:')
-        fi
-        for id in ${acme_ids}; do
-            ~/.acme.sh/acme.sh --revoke -d "${id}" 2> /dev/null
-            ~/.acme.sh/acme.sh --remove -d "${id}" 2> /dev/null
-            rm -rf ~/.acme.sh/"${id}" ~/.acme.sh/"${id}_ecc"
-        done
-        rm -rf "${CERT_BASE_DIR}/${domain}"
-        LOGI "Certificate revoked and removed for: ${domain}"
-    else
-        echo "Invalid domain."
+        printf '%s' "$saved"
     fi
 }
 
-ssl_force_renew() {
-    local domains=$(find "${CERT_BASE_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null)
-    if [ -z "$domains" ]; then
-        echo "No certificates found to renew."
-        return
+install_certificate() {
+    local id=$1 dir=$CERT_ROOT/$1 reload
+    reload=$(reload_command)
+    install -d -m 0700 "$dir"
+    if ! "$ACME" --install-cert -d "$id" \
+        --key-file "$dir/privkey.pem" \
+        --fullchain-file "$dir/fullchain.pem" \
+        ${reload:+--reloadcmd "$reload"}; then
+        if [ ! -s "$dir/fullchain.pem" ] || [ ! -s "$dir/privkey.pem" ]; then
+            die "Installing certificate for $id failed"
+        fi
+        warn "Certificate installed, but the reload command failed: $reload"
     fi
-    echo "Existing certificates:"
-    echo "$domains"
-    read -rp "Enter domain to force renew: " domain
-    if echo "$domains" | grep -qw "$domain"; then
-        ~/.acme.sh/acme.sh --renew -d ${domain} --force
-        LOGI "Certificate forcefully renewed for: $domain"
-    else
-        echo "Invalid domain."
-    fi
+    chmod 0600 "$dir/privkey.pem"
+    chmod 0644 "$dir/fullchain.pem"
+    log "Certificate: $dir/fullchain.pem"
+    log "Private key: $dir/privkey.pem"
+    log "Renewal:     automatic, acme.sh cron job"
 }
 
-ssl_show_existing() {
-    local domains=$(find "${CERT_BASE_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null)
-    if [ -z "$domains" ]; then
-        echo "No certificates found under ${CERT_BASE_DIR}."
-        return
+issue() {
+    local id=$1 challenge=$2
+    shift 2
+    assert_owned "$id"
+    if has_certificate "$id"; then
+        log "acme.sh already holds a certificate for $id, installing it (use renew to reissue)"
+    else
+        if state_dir "$id" >/dev/null; then
+            warn "Incomplete acme.sh state for $id, starting over"
+            forget_state "$id"
+        fi
+        "$challenge" "$id"
+        if ! "$ACME" --issue --keylength ec-256 "$@" "${CHALLENGE[@]}"; then
+            forget_state "$id"
+            die "Issuing certificate for $id failed"
+        fi
     fi
-    echo "Existing certificates:"
-    for domain in $domains; do
-        local cert_path="${CERT_BASE_DIR}/${domain}/fullchain.pem"
-        local key_path="${CERT_BASE_DIR}/${domain}/privkey.pem"
-        if [[ -f "${cert_path}" && -f "${key_path}" ]]; then
-            echo -e "  Domain/IP: ${domain}"
-            echo -e "    Certificate: ${cert_path}"
-            echo -e "    Private Key: ${key_path}"
-            if command -v openssl > /dev/null 2>&1; then
-                local expiry
-                expiry=$(openssl x509 -in "${cert_path}" -noout -enddate 2>/dev/null | cut -d= -f2)
-                [[ -n "$expiry" ]] && echo -e "    Expires: ${expiry}"
-                local sans
-                sans=$(openssl x509 -in "${cert_path}" -noout -ext subjectAltName 2> /dev/null \
-                    | grep -Eo 'DNS:[^,[:space:]]+' | cut -d: -f2 | tr '\n' ' ')
-                [[ -n "$sans" ]] && echo -e "    SANs: ${sans}"
-            fi
-        else
-            echo -e "  Domain/IP: ${domain} - ${red}Certificate or Key missing${plain}"
+    install_certificate "$id"
+}
+
+issue_domain() {
+    local domain=${1:-}
+    [ -n "$domain" ] || domain=$(ask "Domain name")
+    domain=${domain,,}
+    is_domain "$domain" || die "Not a domain name: '$domain'"
+    getent ahosts "$domain" >/dev/null || die "$domain does not resolve, create its DNS record first"
+    issue "$domain" select_http_challenge -d "$domain"
+}
+
+detect_ipv4() {
+    local url ip
+    for url in https://api4.ipify.org https://ipv4.icanhazip.com https://4.ident.me; do
+        ip=$(curl -4 -fs --max-time 3 "$url" | tr -d '[:space:]' || true)
+        if is_ipv4 "$ip"; then
+            printf '%s' "$ip"
+            return
         fi
     done
 }
 
-ssl_set_paths() {
-    echo -e "${green}\t1.${plain} Use a certificate from ${CERT_BASE_DIR}"
-    echo -e "${green}\t2.${plain} Enter custom certificate file paths"
-    read -rp "Choose an option: " pathChoice
+issue_ip() {
+    local ipv4=${1:-} ipv6=${2:-}
+    if [ -z "$ipv4" ]; then
+        ipv4=$(ask "Public IPv4 address of this server" "$(detect_ipv4)")
+        ipv6=$(ask "Public IPv6 address to include (empty to skip)")
+    fi
+    ipv6=${ipv6,,}
+    is_ipv4 "$ipv4" || die "Not an IPv4 address: '$ipv4'"
+    [ -z "$ipv6" ] || is_ipv6 "$ipv6" || die "Not an IPv6 address: '$ipv6'"
+    log "IP certificates are short-lived (160 hours) and renew every $IP_RENEW_DAYS days; port 80 must be reachable on $ipv4"
+    issue "$ipv4" select_http_challenge -d "$ipv4" ${ipv6:+-d "$ipv6"} \
+        --cert-profile shortlived --days "$IP_RENEW_DAYS"
+}
 
-    if [[ "$pathChoice" == "2" ]]; then
-        read -rp "Certificate file (fullchain): " webCertFile
-        read -rp "Private key file: " webKeyFile
-        if [[ -f "${webCertFile}" && -f "${webKeyFile}" ]]; then
-            echo -e "${green}Certificate:${plain} ${webCertFile}"
-            echo -e "${green}Private Key:${plain} ${webKeyFile}"
-            echo ""
-            echo "Use these paths in your web server / proxy configuration:"
-            echo "  ssl_certificate     ${webCertFile};"
-            echo "  ssl_certificate_key ${webKeyFile};"
-        else
-            LOGE "File(s) not found."
-        fi
+cloudflare_challenge() {
+    local kind email
+    CHALLENGE=(--dns dns_cf)
+    [ -z "${CF_Token:-}${CF_Key:-}" ] || return 0
+    if ! interactive; then
+        grep -q '^SAVED_CF_\(Token\|Key\)=' "$ACME_HOME/account.conf" 2>/dev/null \
+            || die "Cloudflare credentials required: export CF_Token, or CF_Key with CF_Email"
         return
     fi
-
-    local domains=$(find "${CERT_BASE_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2> /dev/null)
-    if [ -z "$domains" ]; then
-        echo "No certificates found."
-        return
-    fi
-    echo "Available domains:"
-    echo "$domains"
-    read -rp "Choose a domain: " domain
-    if echo "$domains" | grep -qw "$domain"; then
-        local webCertFile="${CERT_BASE_DIR}/${domain}/fullchain.pem"
-        local webKeyFile="${CERT_BASE_DIR}/${domain}/privkey.pem"
-        if [[ -f "${webCertFile}" && -f "${webKeyFile}" ]]; then
-            echo -e "${green}Certificate:${plain} ${webCertFile}"
-            echo -e "${green}Private Key:${plain} ${webKeyFile}"
-            echo ""
-            echo "Use these paths in your web server / proxy configuration:"
-            echo "  ssl_certificate     ${webCertFile};"
-            echo "  ssl_certificate_key ${webKeyFile};"
-        else
-            LOGE "Certificate or key not found for: $domain"
-        fi
+    kind=$(ask "Cloudflare API token (t) or Global API key (g)" t)
+    if [[ $kind == [gG] ]]; then
+        read -rsp "Global API key: " CF_Key
+        printf '\n' >&2
+        email=$(ask "Cloudflare account email" "$(config_get CF_EMAIL)")
+        config_set CF_EMAIL "$email"
+        export CF_Key CF_Email=$email
     else
-        echo "Invalid domain."
+        read -rsp "API token (Zone.DNS edit): " CF_Token
+        printf '\n' >&2
+        export CF_Token
     fi
 }
 
-ssl_auto_renew_status() {
-    LOGI "acme.sh auto-renewal status:"
-    if ! command -v ~/.acme.sh/acme.sh &> /dev/null; then
-        LOGE "acme.sh is not installed."
-        return
-    fi
-    local cron_installed
-    crontab -l 2> /dev/null | grep -q "acme.sh" && cron_installed=1 || cron_installed=0
-    if [[ $cron_installed -eq 1 ]]; then
-        LOGI "Auto-renewal cron job: ${green}active${plain}"
-    else
-        LOGW "Auto-renewal cron job: ${red}not found${plain}"
-        LOGI "Run: ~/.acme.sh/acme.sh --install-cronjob to enable it."
-    fi
-    echo ""
-    LOGI "Certificates tracked by acme.sh:"
-    ~/.acme.sh/acme.sh --list 2> /dev/null || echo "  (none)"
+issue_cloudflare() {
+    local domain=${1:-}
+    [ -n "$domain" ] || domain=$(ask "Domain name (certificate covers it and *.$domain)")
+    domain=${domain,,}
+    is_domain "$domain" || die "Not a domain name: '$domain'"
+    issue "$domain" cloudflare_challenge -d "$domain" -d "*.$domain"
 }
 
-ssl_menu() {
-    echo -e "
-╔══════════════════════════════════════════════╗
-║   ${green}SSL Certificate Manager v${SCRIPT_VERSION}${plain}             ║
-╠══════════════════════════════════════════════╣
-║   ${green}1.${plain} Get SSL Certificate (Domain)            ║
-║   ${green}2.${plain} Get SSL Certificate (Cloudflare DNS)    ║
-║   ${green}3.${plain} Get SSL Certificate (IP Address)        ║
-║   ${green}4.${plain} Revoke & Remove Certificate             ║
-║   ${green}5.${plain} Force Renew Certificate                 ║
-║   ${green}6.${plain} Show Existing Certificates              ║
-║   ${green}7.${plain} Show Certificate Paths for Config       ║
-║   ${green}8.${plain} Auto-Renewal Status                     ║
-║   ${green}9.${plain} Configure Reload Command                ║
-║  ${green}10.${plain} Install / Update acme.sh                ║
-║   ${green}0.${plain} Exit                                    ║
-╚══════════════════════════════════════════════╝
-"
-    read -rp "Choose an option: " choice
-    case "$choice" in
-        0) exit 0 ;;
-        1) ssl_cert_issue_domain ;;
-        2) ssl_cert_issue_cloudflare ;;
-        3) ssl_cert_issue_ip ;;
-        4) ssl_revoke ;;
-        5) ssl_force_renew ;;
-        6) ssl_show_existing ;;
-        7) ssl_set_paths ;;
-        8) ssl_auto_renew_status ;;
-        9) prompt_reload_cmd ;;
-        10) install_acme ;;
-        *) LOGE "Invalid option." ;;
-    esac
-    before_show_menu
+managed_certificates() {
+    find "$CERT_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort
 }
 
-load_config
+pick_certificate() {
+    local id=${1:-} ids
+    ids=$(managed_certificates)
+    [ -n "$ids" ] || die "No certificates under $CERT_ROOT"
+    if [ -z "$id" ]; then
+        printf '%s\n' "$ids" | nl -w2 -s'. ' >&2
+        id=$(ask "Certificate (number or name)")
+        [[ $id =~ ^[0-9]+$ ]] && id=$(printf '%s\n' "$ids" | sed -n "${id}p")
+    fi
+    printf '%s\n' "$ids" | grep -qxF -- "$id" || die "Unknown certificate: '$id'"
+    printf '%s' "$id"
+}
 
-if [[ $# > 0 ]]; then
+renew_certificate() {
+    local id
+    id=$(pick_certificate "${1:-}")
+    sync_http_mode "$id"
+    "$ACME" --renew -d "$id" --force || die "Renewing $id failed"
+    log "Renewed $id"
+}
+
+remove_certificate() {
+    local id
+    id=$(pick_certificate "${1:-}")
+    confirm "Revoke and delete the certificate for $id?" || die "Aborted"
+    if has_certificate "$id"; then
+        "$ACME" --revoke -d "$id" || warn "Revocation failed, deleting anyway"
+    fi
+    forget_state "$id"
+    rm -rf "${CERT_ROOT:?}/$id"
+    log "Certificate for $id revoked and deleted"
+}
+
+validation_method() {
     case $1 in
-        "issue")
-            case "${2:-}" in
-                "domain" | "") ssl_cert_issue_domain ;;
-                "cf" | "cloudflare") ssl_cert_issue_cloudflare ;;
-                "ip") ssl_cert_issue_ip ;;
-                *) echo "Usage: $0 issue [domain|cf|ip]" ;;
+        "")     printf 'unknown' ;;
+        no)     printf 'HTTP-01 standalone, acme.sh listens on free port 80' ;;
+        dns_*)  printf 'DNS-01 %s' "$1" ;;
+        *)      printf 'HTTP-01 webroot %s' "$1" ;;
+    esac
+}
+
+list_certificates() {
+    local id cert names
+    if [ -z "$(managed_certificates)" ]; then
+        log "No certificates under $CERT_ROOT"
+        return
+    fi
+    for id in $(managed_certificates); do
+        cert=$CERT_ROOT/$id/fullchain.pem
+        printf '%b%s%b\n' "$GREEN" "$id" "$PLAIN"
+        if [ ! -s "$cert" ] || [ ! -s "$CERT_ROOT/$id/privkey.pem" ]; then
+            printf '  %bcertificate or key missing%b\n' "$RED" "$PLAIN"
+            continue
+        fi
+        names=$(openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null \
+            | grep -Eo '(DNS|IP Address):[^,[:space:]]+' | sed 's/^IP Address:/IP:/' | paste -sd' ')
+        printf '  Names:       %s\n' "$names"
+        printf '  Expires:     %s\n' "$(openssl x509 -in "$cert" -noout -enddate | cut -d= -f2)"
+        printf '  Next renew:  %s\n' "$(state_value "$id" Le_NextRenewTimeStr)"
+        printf '  Validation:  %s\n' "$(validation_method "$(state_value "$id" Le_Webroot)")"
+        printf '  Certificate: %s\n' "$cert"
+        printf '  Private key: %s\n' "$CERT_ROOT/$id/privkey.pem"
+    done
+}
+
+show_status() {
+    log "acme.sh $("$ACME" --version | tail -n1), default CA Let's Encrypt"
+    if crontab -l 2>/dev/null | grep -q 'acme.sh.* --cron'; then
+        log "Renewal cron job: $(crontab -l | grep 'acme.sh.* --cron' | cut -d' ' -f1-5)"
+    else
+        warn "Renewal cron job is missing"
+    fi
+    printf '\nAll certificates known to acme.sh (including ones managed by other tools):\n'
+    "$ACME" --list
+}
+
+configure_reload() {
+    local cmd=${1:-} unit
+    if [ -z "$cmd" ]; then
+        log "Current reload command: $(config_get RELOAD_CMD)"
+        cmd=$(ask "New command ('auto' to detect the web server, 'none' to clear)")
+    fi
+    case $cmd in
+        auto)
+            cmd=""
+            for unit in nginx apache2 httpd caddy haproxy x-ui; do
+                if systemctl is-active --quiet "$unit" 2>/dev/null; then
+                    cmd="systemctl reload-or-restart $unit"
+                    break
+                fi
+            done
+            [ -n "$cmd" ] || die "No running web server detected"
+            ;;
+        none) cmd="" ;;
+    esac
+    config_set RELOAD_CMD "$cmd"
+    log "Reload command for new certificates: ${cmd:-none}"
+}
+
+usage() {
+    cat >&2 <<EOF
+Usage: $0                                   interactive menu
+       $0 issue domain [name]               HTTP-01 certificate for a domain
+       $0 issue ip [ipv4] [ipv6]            short-lived certificate for IP addresses
+       $0 issue cf [domain]                 DNS-01 via Cloudflare, domain + wildcard
+       $0 renew [name]                      force renewal
+       $0 remove [name]                     revoke and delete
+       $0 list                              certificates under $CERT_ROOT
+       $0 status                            acme.sh, cron job, all certificates
+       $0 config [command|auto|none]        reload command for new certificates
+EOF
+    exit 1
+}
+
+run_action() {
+    set +e
+    (set -e; "$@")
+    set -e
+}
+
+menu() {
+    local choice
+    while true; do
+        printf '\n%bSSL certificate manager%b\n' "$GREEN" "$PLAIN"
+        printf '  1. Issue certificate for a domain (HTTP-01)\n'
+        printf '  2. Issue certificate for a domain + wildcard (Cloudflare DNS)\n'
+        printf '  3. Issue certificate for the server IP address\n'
+        printf '  4. Force renew a certificate\n'
+        printf '  5. Revoke and delete a certificate\n'
+        printf '  6. List certificates\n'
+        printf '  7. Status of acme.sh and auto-renewal\n'
+        printf '  8. Configure reload command\n'
+        printf '  0. Exit\n'
+        read -rp "Choose an option: " choice || exit 0
+        case $choice in
+            1) run_action issue_domain ;;
+            2) run_action issue_cloudflare ;;
+            3) run_action issue_ip ;;
+            4) run_action renew_certificate ;;
+            5) run_action remove_certificate ;;
+            6) run_action list_certificates ;;
+            7) run_action show_status ;;
+            8) run_action configure_reload ;;
+            0) exit 0 ;;
+            *) warn "Unknown option: $choice" ;;
+        esac
+    done
+}
+
+main() {
+    case ${1:-} in -h|--help) usage ;; esac
+    bootstrap
+    case ${1:-} in
+        "") menu ;;
+        issue)
+            case ${2:-} in
+                domain) issue_domain "${3:-}" ;;
+                ip)     issue_ip "${3:-}" "${4:-}" ;;
+                cf)     issue_cloudflare "${3:-}" ;;
+                *)      usage ;;
             esac
             ;;
-        "revoke") ssl_revoke ;;
-        "renew") ssl_force_renew ;;
-        "list") ssl_show_existing ;;
-        "status") ssl_auto_renew_status ;;
-        "config") prompt_reload_cmd ;;
-        "install-acme") install_acme ;;
-        *)
-            echo "Usage: $0 [issue [domain|cf|ip]|revoke|renew|list|status|config|install-acme]"
-            ;;
+        renew)  renew_certificate "${2:-}" ;;
+        remove) remove_certificate "${2:-}" ;;
+        list)   list_certificates ;;
+        status) show_status ;;
+        config) configure_reload "${2:-}" ;;
+        *)      usage ;;
     esac
-else
-    ssl_menu
-fi
+}
+
+main "$@"
